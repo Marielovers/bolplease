@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>트릭컬 속성 분류 게임 (VTS 통합판)</title>
+<style>
+    @font-face {
+        font-family: 'ONE Mobile POP';
+        src: url('ONE Mobile POP.ttf') format('truetype');
+    }
+
+    ::-webkit-scrollbar { width: 12px; height: 12px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #bdc3c7; border-radius: 10px; border: 3px solid #ecf0f1; }
+    ::-webkit-scrollbar-thumb:hover { background: #7f8c8d; }
+
+    body {
+        font-family: 'ONE Mobile POP', sans-serif;
+        background-color: #2c3e50; margin: 0; height: 100vh;
+        display: flex; justify-content: center; align-items: center; overflow: hidden; 
+    }
+
+    /* 🌟 VTS 아이트래킹 캔버스 */
+    #trailCanvas {
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        pointer-events: none; z-index: 9999;
+    }
+
+    .scroll-container { max-height: 95vh; overflow-y: auto; box-sizing: border-box; }
+
+    /* --- VTS 상태 및 캘리브레이션 --- */
+    #vtsStatus {
+        font-size: 18px; font-weight: 800; background: white; padding: 10px 20px; 
+        border-radius: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; color: #ff4757;
+    }
+    #calibScreen {
+        background-color: #1e272e; color: white; width: 100vw; height: 100vh;
+        position: fixed; top: 0; left: 0; display: none; flex-direction: column; 
+        align-items: center; justify-content: center; z-index: 2000;
+    }
+    #calibDot {
+        position: absolute; width: 80px; height: 80px; background-color: #0be881; 
+        border-radius: 50%; transform: translate(-50%, -50%); transition: all 0.2s ease-out;
+        box-shadow: 0 0 30px rgba(11, 232, 129, 0.6);
+    }
+    #calibText { font-size: 34px; font-weight: 800; position: absolute; top: 20%; }
+    #calibProgress { font-size: 22px; color: #808e9b; position: absolute; top: 28%; }
+    .btn-calib { background: linear-gradient(135deg, #2980b9, #6dd5ed); font-family: inherit; font-size: 18px; padding: 12px 24px; color: white; border: none; border-radius: 10px; cursor: pointer; margin-top: 15px; }
+
+    /* --- 1. 타이틀 화면 --- */
+    #title-screen {
+        background-color: #ecf0f1; width: 600px; padding: 40px 50px; border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; display: flex; flex-direction: column; align-items: center; z-index: 10;
+    }
+    #title-screen h1 { font-size: 40px; color: #2c3e50; margin-bottom: 30px; }
+    .setting-box { background: white; padding: 20px 30px; border-radius: 10px; font-size: 22px; margin-bottom: 30px; }
+    #char-count { font-family: inherit; font-size: 22px; width: 80px; text-align: center; border-radius: 5px; }
+    #start-btn { font-family: inherit; font-size: 28px; padding: 15px 50px; background-color: #e67e22; color: white; border: none; border-radius: 10px; cursor: pointer; transition: transform 0.1s; }
+    #start-btn:active { transform: scale(0.95); }
+
+    /* --- 2. 게임 화면 --- */
+    #game-container {
+        background-color: #ecf0f1; width: 700px; border-radius: 15px; padding: 30px;
+        display: none; flex-direction: column; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10;
+    }
+    #progress-info { background: #34495e; color: #ecf0f1; padding: 8px 20px; border-radius: 20px; font-size: 20px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); flex-shrink: 0; }
+    #paper-area { width: 100%; height: 500px; position: relative; overflow: hidden; background: #bdc3c7; border-radius: 10px; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
+    #character-card { position: absolute; width: 320px; height: 440px; background: white; padding: 15px; border-radius: 8px; display: flex; flex-direction: column; transition: transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.5s ease-out; }
+    #character-card.no-anim { transition: none !important; } 
+    #character-card.hidden { transform: translateX(-150%) rotate(-10deg); opacity: 0; }
+    #character-card.enter { transform: translateX(0) rotate(0deg); opacity: 1; }
+    #character-card.leave { transform: translateX(150%) rotate(10deg); opacity: 0; }
+    #character-image { width: 100%; height: 360px; object-fit: contain; border: 2px solid #eee; border-radius: 4px; pointer-events: none; }
+    #character-name { text-align: center; font-size: 26px; margin-top: 15px; }
+    #controls { margin-top: 25px; display: flex; gap: 20px; align-items: center; flex-shrink: 0; }
+    .stamp-group { display: flex; gap: 15px; background: #fff; padding: 15px; border-radius: 8px; }
+    .stamp-btn { font-family: inherit; font-size: 24px; padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; transition: transform 0.1s; }
+    .stamp-btn:active { transform: translateY(4px); }
+    .btn-nong { background-color: #f1c40f; color: #333; }
+    .btn-neulg { background-color: #2ecc71; color: white; }
+    .btn-bin { background-color: #3498db; color: white; }
+    .btn-bbang { background-color: #e74c3c; color: white; }
+    #next-btn { font-family: inherit; font-size: 24px; padding: 15px 40px; background-color: #34495e; color: white; border-radius: 8px; cursor: pointer; margin-left: 20px; transition: transform 0.1s; }
+    #next-btn:active { transform: scale(0.95); }
+
+    .stamp { position: absolute; font-size: 80px; background: rgba(255, 255, 255, 0.7); border-radius: 15px; padding: 5px 25px; pointer-events: none; z-index: 10; display: none; }
+    .stamp-nong { color: #f1c40f; border: 8px solid #f1c40f; }
+    .stamp-neulg { color: #2ecc71; border: 8px solid #2ecc71; }
+    .stamp-bin { color: #3498db; border: 8px solid #3498db; }
+    .stamp-bbang { color: #e74c3c; border: 8px solid #e74c3c; }
+    #stamp-age { top: 60px; left: 10px; }
+    #stamp-body { top: 220px; right: 10px; }
+    @keyframes stampAnimAge { 0% { transform: scale(3) rotate(-20deg); opacity: 0; } 100% { transform: scale(1) rotate(-20deg); opacity: 1; } }
+    @keyframes stampAnimBody { 0% { transform: scale(3) rotate(15deg); opacity: 0; } 100% { transform: scale(1) rotate(15deg); opacity: 1; } }
+
+    /* --- 화면 애니메이션 --- */
+    @keyframes screenPop {
+        0% { opacity: 0; transform: translateY(40px) scale(0.95); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* --- 3. 완료 축하 화면 --- */
+    #celebration-screen {
+        background-color: #ecf0f1; width: 600px; padding: 50px; border-radius: 15px;
+        display: none; flex-direction: column; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; z-index: 10;
+        animation: screenPop 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+    }
+    .confetti-emoji { font-size: 80px; animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; margin-bottom: 10px; }
+    #celebration-screen h1 { font-size: 50px; color: #e74c3c; margin: 10px 0 20px 0; text-shadow: 2px 2px 0 rgba(0,0,0,0.1); }
+    #celebration-screen p { font-size: 24px; color: #2c3e50; margin-bottom: 30px; }
+    #go-result-btn { font-family: inherit; font-size: 28px; padding: 15px 50px; background-color: #9b59b6; color: white; border: none; border-radius: 10px; cursor: pointer; transition: transform 0.1s; }
+    #go-result-btn:active { transform: scale(0.95); }
+    @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    .paper-confetti { position: fixed; top: -30px; z-index: 9999; pointer-events: none; }
+    @keyframes fall { 0% { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translateY(110vh) rotate(720deg) scale(0.8); opacity: 0; } }
+
+    /* --- 결과창 공통 레이아웃 --- */
+    .result-screen-base {
+        background-color: #ecf0f1; width: 850px; padding: 40px; border-radius: 15px;
+        display: none; flex-direction: column; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10;
+        animation: screenPop 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+    }
+    .result-title { font-size: 38px; color: #2c3e50; margin: 10px 0 20px 0; padding: 0; text-align: center; width: 100%; flex-shrink: 0; }
+    .action-btn { font-family: inherit; font-size: 24px; padding: 15px 40px; color: white; border: none; border-radius: 8px; cursor: pointer; margin-top: 20px; transition: transform 0.1s; flex-shrink: 0; }
+    .action-btn:active { transform: scale(0.95); }
+    .btn-next-result { background-color: #3498db; }
+    .btn-restart { background-color: #2ecc71; }
+
+    /* 🌟 0번 결과창: MVP 하이라이트 그리드 */
+    .mvp-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; width: 100%; max-width: 750px; margin-bottom: 20px; }
+    .mvp-card {
+        background: linear-gradient(135deg, #2c3e50, #34495e); border-radius: 15px; padding: 25px 15px;
+        color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        border-bottom: 8px solid #3498db; transform: translateY(30px); opacity: 0; transition: 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+        display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; overflow: hidden;
+    }
+    .mvp-card.show { transform: translateY(0); opacity: 1; }
+    .mvp-card::after { 
+        content: ""; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0) 100%);
+        transform: rotate(30deg); animation: shine 3s infinite; pointer-events: none;
+    }
+    @keyframes shine { 0% { left: -100%; } 100% { left: 100%; } }
+    .mvp-card img { width: 110px; height: 110px; object-fit: cover; object-position: top; border-radius: 20px; border: 3px solid #ecf0f1; margin-bottom: 15px; background: white; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+    .mvp-title { font-size: 16px; color: #bdc3c7; margin-bottom: 8px; font-weight: 700; letter-spacing: 1px; }
+    .mvp-name { font-size: 26px; color: #f1c40f; font-weight: 900; margin-bottom: 5px; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+    .mvp-val { font-size: 16px; color: #ecf0f1; font-weight: 600; }
+
+    /* 산점도 및 그리드 맵 */
+    .graph-wrapper { position: relative; margin: 0 0 20px 0; padding: 40px; flex-shrink: 0; }
+    .axis-label { position: absolute; font-size: 28px; font-weight: bold; z-index: 5; }
+    .label-nong { top: 50%; left: 0; transform: translateY(-50%); color: #f39c12; }
+    .label-neulg { top: 50%; right: 0; transform: translateY(-50%); color: #27ae60; }
+    .label-bbang { top: 0; left: 50%; transform: translateX(-50%); color: #c0392b; }
+    .label-bin { bottom: 0; left: 50%; transform: translateX(-50%); color: #2980b9; }
+
+    #grid-graph-container { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; width: 700px; height: 600px; background-color: #7f8c8d; gap: 3px; border: 4px solid #34495e; border-radius: 8px; }
+    .grid-cell { background-color: #fdfdfd; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 5px; padding: 5px; overflow: hidden; }
+    #cell-center-center { background-color: #f4f6f7; }
+    .mini-img { width: 50px; height: 50px; object-fit: cover; border-radius: 5px; border: 2px solid #ddd; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); transition: transform 0.1s; cursor: pointer; }
+    .mini-img:hover { transform: scale(1.5); z-index: 10; position: relative; border-color: #3498db; }
+
+    #race-graph-container, #personality-graph-container, #etc-graph-container { position: relative; width: 700px; height: 600px; background-color: #fdfdfd; border: 4px solid #34495e; border-radius: 8px; background-image: linear-gradient(to right, transparent 49.6%, #bdc3c7 49.6%, #bdc3c7 50.4%, transparent 50.4%), linear-gradient(to bottom, transparent 49.6%, #bdc3c7 49.6%, #bdc3c7 50.4%, transparent 50.4%); }
+    .race-img, .personality-img, .etc-img { position: absolute; width: 70px; height: 70px; object-fit: contain; border-radius: 50%; border: 3px solid #34495e; background-color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transform: translate(-50%, -50%); transition: transform 0.2s, z-index 0.2s; cursor: pointer; }
+    .race-img:hover, .personality-img:hover, .etc-img:hover { transform: translate(-50%, -50%) scale(1.3); z-index: 20; border-color: #9b59b6; }
+
+    /* 대시보드 및 막대그래프 */
+    .ratio-summary-box { width: 700px; display: flex; justify-content: space-around; background: #fdfdfd; border: 4px solid #34495e; border-radius: 8px; padding: 20px; margin-bottom: 25px; box-sizing: border-box; flex-shrink: 0; }
+    .ratio-col { text-align: center; width: 45%; }
+    .ratio-title { font-size: 22px; color: #2c3e50; font-weight: bold; border-bottom: 2px solid #bdc3c7; padding-bottom: 10px; margin-bottom: 15px; }
+    .ratio-bar-wrap { display: flex; width: 100%; height: 25px; border-radius: 15px; overflow: hidden; background: #bdc3c7; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 10px; }
+    .ratio-seg { display: flex; align-items: center; justify-content: center; font-size: 14px; color: white; font-weight: bold; text-shadow: 1px 1px 1px rgba(0,0,0,0.5); transition: width 0.5s ease-out; }
+    .bg-nong { background-color: #f1c40f; color: #333; text-shadow: none; } .bg-neulg { background-color: #2ecc71; } .bg-bin { background-color: #3498db; } .bg-bbang { background-color: #e74c3c; }
+    .ratio-legend { display: flex; justify-content: center; gap: 15px; font-size: 16px; color: #2c3e50; font-weight: bold; }
+    
+    .bar-chart-title { font-size: 26px; color: #2c3e50; margin: 20px 0 10px 0; width: 100%; text-align: left; border-left: 5px solid #2980b9; padding-left: 10px; }
+    .bar-chart-container { width: 750px; height: 250px; background-color: #fdfdfd; border: 4px solid #34495e; border-radius: 8px; display: flex; align-items: flex-end; justify-content: space-evenly; padding: 20px 20px 50px 20px; margin-bottom: 30px; box-sizing: border-box; background-image: linear-gradient(to bottom, #ecf0f1 1px, transparent 1px); background-size: 100% 25%; }
+    .bar-wrapper { width: 50px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; position: relative; box-shadow: 2px 0px 5px rgba(0,0,0,0.1); transition: transform 0.2s; }
+    .bar-wrapper:hover { transform: scale(1.05); }
+    .bar-segment { width: 100%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold; overflow: hidden; }
+    .bar-label { position: absolute; bottom: -35px; left: 50%; transform: translateX(-50%); font-size: 16px; color: #2c3e50; white-space: nowrap; font-weight: bold; }
+
+    /* VTS 통계 전용 스타일 (애니메이션 포함) */
+    .vts-stats-table { width: 750px; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.1); margin-bottom: 10px; }
+    .vts-stats-table th { background: #34495e; color: white; padding: 12px; font-size: 20px; }
+    .vts-stats-table td { padding: 12px; text-align: center; border-bottom: 1px solid #ecf0f1; font-size: 18px; color: #2c3e50; }
+    .vts-stats-table tr:last-child td { border-bottom: none; }
+    .vts-stats-table .highlight { font-weight: bold; background-color: rgba(241, 196, 15, 0.2); }
+    
+    .vts-row { opacity: 0; transform: translateY(20px); transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1); }
+    .vts-row.show { opacity: 1; transform: translateY(0); }
+
+    /* 세련된(데이터 사이언스 스타일) 최종 판정 박스 */
+    .modern-prob-box {
+        margin-top: 30px; width: 100%; max-width: 750px;
+        background: linear-gradient(145deg, #1e272e, #2c3e50);
+        border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.1);
+        border-left: 8px solid #00d2d3; 
+        box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        padding: 35px 20px; text-align: center;
+        opacity: 0; transform: translateY(30px); transition: 0.8s cubic-bezier(0.25, 0.8, 0.25, 1);
+    }
+    .modern-prob-box.show { opacity: 1; transform: translateY(0); }
+    .prob-label { font-size: 16px; color: #7f8c8d; margin-bottom: 15px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+    .prob-value { font-size: 38px; color: #ecf0f1; font-weight: 300; line-height: 1.5; }
+    .prob-highlight { color: #00d2d3; font-weight: 900; text-shadow: 0 0 20px rgba(0, 210, 211, 0.6); font-size: 46px; padding: 0 5px; }
+</style>
+</head>
+<body>
+
+<canvas id="trailCanvas"></canvas>
+
+<div id="calibScreen">
+    <div id="calibText">녹색 원을 2초간 응시하세요.</div>
+    <div id="calibProgress">진행도: 0 / 9</div>
+    <div id="calibDot"></div>
+</div>
+
+<div id="title-screen" class="scroll-container">
+    <div id="vtsStatus">VTS 연결 대기 중... (마우스 시선 대체 모드)</div>
+    <h1>트릭컬 속성 분류 게임</h1>
+    <div class="setting-box">
+        <label>분류할 캐릭터 수 :</label>
+        <input type="number" id="char-count" min="1" value="10">
+        <span>명 (최대 <span id="max-count-label">0</span>명)</span>
+    </div>
+    <button id="start-btn" class="btn">게임 시작</button>
+    <button class="btn btn-calib" onclick="startCalibration()">⚙️ 시선 보정 (VTS용)</button>
+</div>
+
+<div id="game-container" class="scroll-container">
+    <div id="progress-info">
+        진행도: <span id="current-count">0</span> / <span id="total-count">0</span> 
+        (남은 사도: <span id="remain-count">0</span>명)
+    </div>
+    <div id="paper-area">
+        <div id="character-card" class="hidden">
+            <img id="character-image" src="" alt="캐릭터 이미지">
+            <div id="stamp-age" class="stamp"></div>
+            <div id="stamp-body" class="stamp"></div>
+            <div id="character-name"></div>
+        </div>
+    </div>
+    <div id="controls">
+        <div class="stamp-group">
+            <button class="stamp-btn btn-nong btn" onclick="applyStamp('age', '농')">농</button>
+            <button class="stamp-btn btn-neulg btn" onclick="applyStamp('age', '늙')">늙</button>
+            <button class="stamp-btn btn-bin btn" onclick="applyStamp('body', '빈')">빈</button>
+            <button class="stamp-btn btn-bbang btn" onclick="applyStamp('body', '빵')">빵</button>
+        </div>
+        <button id="next-btn" class="btn" onclick="nextCharacter()">다음 ▶</button>
+    </div>
+</div>
+
+<div id="celebration-screen" class="scroll-container">
+    <div class="confetti-emoji">🎉</div>
+    <p>모든 사도의 분류가 끝났습니다!</p>
+    <h1>축하합니다!</h1>
+    <button id="go-result-btn" class="btn" onclick="showMvpAnalysis()">분류 결과 보기 ▶</button>
+</div>
+
+<!-- 0. MVP 하이라이트 화면 -->
+<div id="result-screen-0" class="result-screen-base scroll-container">
+    <h2 class="result-title">🎖️ 분류 하이라이트</h2>
+    <div class="mvp-grid" id="mvp-container"></div>
+    <button class="action-btn btn-next-result btn" onclick="showResults()">상세 분류 맵 보기 ▶</button>
+</div>
+
+<!-- 1. 분류 결과 -->
+<div id="result-screen-1" class="result-screen-base scroll-container">
+    <h2 class="result-title">분류 결과 (Grid Map)</h2>
+    <div id="ratio-summary-box" class="ratio-summary-box"></div>
+    <div class="graph-wrapper">
+        <div class="axis-label label-bbang">빵</div><div class="axis-label label-bin">빈</div><div class="axis-label label-nong">농</div><div class="axis-label label-neulg">늙</div>
+        <div id="grid-graph-container">
+            <div class="grid-cell" id="cell-top-left"></div><div class="grid-cell" id="cell-top-center"></div><div class="grid-cell" id="cell-top-right"></div>
+            <div class="grid-cell" id="cell-center-left"></div><div class="grid-cell" id="cell-center-center"></div><div class="grid-cell" id="cell-center-right"></div>
+            <div class="grid-cell" id="cell-bottom-left"></div><div class="grid-cell" id="cell-bottom-center"></div><div class="grid-cell" id="cell-bottom-right"></div>
+        </div>
+    </div>
+    <button class="action-btn btn-next-result btn" onclick="showRaceAnalysis()">종족별 분석 보기 ▶</button>
+</div>
+
+<!-- 2. 종족별 분석 -->
+<div id="result-screen-2" class="result-screen-base scroll-container">
+    <h2 class="result-title">종족별 분석</h2>
+    <div class="graph-wrapper">
+        <div class="axis-label label-bbang">빵</div><div class="axis-label label-bin">빈</div><div class="axis-label label-nong">농</div><div class="axis-label label-neulg">늙</div>
+        <div id="race-graph-container"></div>
+    </div>
+    <button class="action-btn btn-next-result btn" onclick="showPersonalityAnalysis()">성격별 분석 보기 ▶</button>
+</div>
+
+<!-- 3. 성격별 분석 -->
+<div id="result-screen-3" class="result-screen-base scroll-container">
+    <h2 class="result-title">성격별 분석</h2>
+    <div class="graph-wrapper">
+        <div class="axis-label label-bbang">빵</div><div class="axis-label label-bin">빈</div><div class="axis-label label-nong">농</div><div class="axis-label label-neulg">늙</div>
+        <div id="personality-graph-container"></div>
+    </div>
+    <button class="action-btn btn-next-result btn" onclick="showEtcAnalysis()">그 외 분석 보기 ▶</button>
+</div>
+
+<!-- 4. 그 외 분석 -->
+<div id="result-screen-4" class="result-screen-base scroll-container">
+    <h2 class="result-title">그 외 분석</h2>
+    <div class="graph-wrapper">
+        <div class="axis-label label-bbang">빵</div><div class="axis-label label-bin">빈</div><div class="axis-label label-nong">농</div><div class="axis-label label-neulg">늙</div>
+        <div id="etc-graph-container"></div>
+    </div>
+    <button class="action-btn btn-next-result btn" onclick="showReleaseAnalysis()">출시 년도별 분석 보기 ▶</button>
+</div>
+
+<!-- 5. 출시 년도별 분석 -->
+<div id="result-screen-5" class="result-screen-base scroll-container">
+    <h2 class="result-title">출시 년도별 분석</h2>
+    <div class="bar-chart-title">농 / 늙 비율</div>
+    <div id="release-age-graph" class="bar-chart-container"></div>
+    <div class="bar-chart-title">빈 / 빵 비율</div>
+    <div id="release-body-graph" class="bar-chart-container"></div>
+    <button class="action-btn btn-next-result btn" style="margin-top: 30px; background-color: #8e44ad;" onclick="showVtsAnalysis()">📊 무의식 정밀 분석 보기 ▶</button>
+</div>
+
+<!-- 6. VTS 무의식 정밀 분석 -->
+<div id="result-screen-6" class="result-screen-base scroll-container">
+    <h2 class="result-title">📊 무의식 정밀 분석 결과</h2>
+    <p style="color: #7f8c8d; font-size: 18px; margin-bottom: 20px;">※ 횟수 지표들은 도장을 찍기까지 걸린 시간(초)으로 나눈 <b>'초당 발생 비율'</b>입니다.</p>
+    
+    <div id="vts-stats-container"></div>
+
+    <button class="action-btn btn-restart btn" onclick="location.reload()" style="margin-top: 30px; opacity: 0; transition: 0.5s;" id="final-restart-btn">처음으로 돌아가기</button>
+</div>
+
+<script>
+    // 🌟 1. 글로벌 마스터 볼륨 30% 설정
+    let audioCtx, masterGain;
+    function initAudio() { 
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.3; 
+            masterGain.connect(audioCtx.destination);
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume(); 
+    }
+    
+    // 🌟 2. 주파수가 낮음에서 높음으로 올라가는 '뿅' 사운드
+    function playButtonSound() {
+        try { initAudio();
+            let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(masterGain); osc.type = 'sine';
+            osc.frequency.setValueAtTime(400, audioCtx.currentTime); // 낮게 시작해서
+            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.15); // 높게 튀어오름
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime); 
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.start(audioCtx.currentTime); osc.stop(audioCtx.currentTime + 0.15);
+        } catch(e) {}
+    }
+
+    // 결과 팝업용 소리 
+    function playSelectSound() {
+        try { initAudio();
+            let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(masterGain); osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        } catch(e) {}
+    }
+
+    // 🌟 3. 묵직한 도장 쾅! 소리
+    function playThudSound() {
+        try { initAudio();
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator(); 
+            const gainNode = audioCtx.createGain();
+            osc.type = 'sine'; 
+            osc.frequency.setValueAtTime(150, now); 
+            osc.frequency.exponentialRampToValueAtTime(10, now + 0.2);
+            gainNode.gain.setValueAtTime(1.5, now); 
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.connect(gainNode); gainNode.connect(masterGain); 
+            
+            const snapOsc = audioCtx.createOscillator(); 
+            const snapGain = audioCtx.createGain();
+            snapOsc.type = 'square'; 
+            snapOsc.frequency.setValueAtTime(200, now);
+            snapOsc.frequency.exponentialRampToValueAtTime(50, now + 0.05);
+            snapGain.gain.setValueAtTime(0.8, now); 
+            snapGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+            snapOsc.connect(snapGain); snapGain.connect(masterGain);
+
+            osc.start(now); osc.stop(now + 0.2);
+            snapOsc.start(now); snapOsc.stop(now + 0.05);
+        } catch(e) {}
+    }
+
+    // 팡파레 소리
+    function playFanfareSound() {
+        try { initAudio(); const now = audioCtx.currentTime;
+            [ [440, 0], [554.37, 0.15], [659.25, 0.3] ].forEach(([freq, delay], i) => {
+                const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+                osc.type = 'triangle'; osc.frequency.setValueAtTime(freq, now + delay);
+                gain.gain.setValueAtTime(1, now + delay); gain.gain.linearRampToValueAtTime(0, now + delay + (i===2?0.7:0.1));
+                osc.connect(gain); gain.connect(masterGain); osc.start(now + delay); osc.stop(now + delay + (i===2?0.7:0.1));
+            });
+        } catch(e) {}
+    }
+
+    // 🌟 도장 버튼 제외한 모든 .btn 클래스에 뿅 사운드 자동 바인딩
+    function setupButtonSounds() {
+        document.querySelectorAll('.btn').forEach(btn => {
+            if(!btn.classList.contains('stamp-btn')) {
+                btn.addEventListener('click', playButtonSound);
+            }
+        });
+        document.getElementById('start-btn').addEventListener('click', startGame);
+    }
+
+    let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2, isMouseDown = false;
+    window.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+    window.addEventListener('mousedown', () => isMouseDown = true);
+    window.addEventListener('mouseup', () => isMouseDown = false);
+
+    let vts = { ws: null, authenticated: false, trackingMode: "연결 안 됨 (마우스 시선 대체 모드)", eyeX: 0, eyeY: 0, eyeLOpen: 1, eyeROpen: 1, mouthSmile: 0, browY: 0, voiceVol: 0, voiceFreq: 0, faceZ: 0 };
+    let lastTrackTime = performance.now();
+    let trail = []; let smoothX = 0, smoothY = 0; const smoothingFactor = 0.15;
+    let prevVtsEyeX = 0, prevVtsEyeY = 0;
+    
+    const calibSteps = ["TopLeft", "TopCenter", "TopRight", "MiddleLeft", "Center", "MiddleRight", "BottomLeft", "BottomCenter", "BottomRight"];
+    let calibData = {
+        TopLeft: {x: -1, y: 1}, TopCenter: {x: 0, y: 1}, TopRight: {x: 1, y: 1},
+        MiddleLeft: {x: -1, y: 0}, Center: {x: 0, y: 0}, MiddleRight: {x: 1, y: 0},
+        BottomLeft: {x: -1, y: -1}, BottomCenter: {x: 0, y: -1}, BottomRight: {x: 1, y: -1}
+    };
+    try { let saved = JSON.parse(localStorage.getItem('vts_calib_9pt')); if (saved && saved.TopLeft) calibData = saved; } catch(e) {}
+    let currentCalibIdx = 0, calibSamplesX = [], calibSamplesY = [], calibStartTime = 0;
+
+    const canvas = document.getElementById("trailCanvas"); const ctx = canvas.getContext("2d");
+    window.addEventListener("resize", () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }); window.dispatchEvent(new Event("resize"));
+
+    function connectVTS() {
+        try {
+            vts.ws = new WebSocket("ws://localhost:8001");
+            vts.ws.onopen = () => {
+                let token = localStorage.getItem("vts_token");
+                if (!token) vts.ws.send(JSON.stringify({apiName: "VTubeStudioPublicAPI", apiVersion: "1.0", requestID: "AuthToken", messageType: "AuthenticationTokenRequest", data: { pluginName: "Trickcal Sorter", pluginDeveloper: "Dev" }}));
+                else vts.ws.send(JSON.stringify({apiName: "VTubeStudioPublicAPI", apiVersion: "1.0", requestID: "Auth", messageType: "AuthenticationRequest", data: { pluginName: "Trickcal Sorter", pluginDeveloper: "Dev", authenticationToken: token }}));
+            };
+            vts.ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.messageType === "AuthenticationTokenResponse") { localStorage.setItem("vts_token", msg.data.authenticationToken); connectVTS(); }
+                    else if (msg.messageType === "AuthenticationResponse") {
+                        if (msg.data.authenticated) {
+                            vts.authenticated = true; document.getElementById("vtsStatus").style.color = "#2ecc71";
+                            setInterval(() => { if(vts.ws.readyState === WebSocket.OPEN) vts.ws.send(JSON.stringify({apiName: "VTubeStudioPublicAPI", apiVersion: "1.0", requestID: "Live2D", messageType: "InputParameterListRequest"})); }, 1000 / 60);
+                        }
+                    } else if (msg.messageType === "InputParameterListResponse") {
+                        let faceX = 0, faceY = 0, faceZ = 0, eyeX = 0, eyeY = 0, browUp = 0;
+                        let params = msg.data.defaultParameters.concat(msg.data.customParameters || []);
+                        params.forEach(p => {
+                            let n = p.name, v = p.value;
+                            if (n === "FaceAngleX") faceX = -v; else if (n === "FaceAngleY") faceY = -v; else if (n === "FaceAngleZ") faceZ = v;
+                            else if (n === "EyeLeftX") eyeX = v; else if (n === "EyeLeftY") eyeY = -v;
+                            else if (n === "EyeOpenLeft") vts.eyeLOpen = v; else if (n === "EyeOpenRight") vts.eyeROpen = v;
+                            else if (n === "MouthSmile") vts.mouthSmile = v; else if (n === "BrowInnerUp") browUp = v; 
+                            else if (n === "VoiceVolume") vts.voiceVol = v; else if (n === "VoiceFrequency") vts.voiceFreq = v;
+                        });
+                        vts.browY = browUp; vts.faceZ = faceZ; 
+                        let baseX = (faceX / 30.0) + eyeX; let baseY = (faceY / 30.0) + eyeY; let zRad = faceZ * (Math.PI / 180.0);
+                        vts.eyeX = baseX * Math.cos(zRad) - baseY * Math.sin(zRad); vts.eyeY = baseX * Math.sin(zRad) + baseY * Math.cos(zRad);
+                        document.getElementById("vtsStatus").innerText = `VTS 통신 정상 (수집 및 정밀 추적 중)`;
+                    }
+                } catch(err) {} 
+            };
+            vts.ws.onclose = () => { vts.authenticated = false; document.getElementById("vtsStatus").style.color = "#ff4757"; document.getElementById("vtsStatus").innerText = "VTS 연결 대기 중... (마우스 시선 대체 모드)"; setTimeout(connectVTS, 3000); };
+        } catch(e) { setTimeout(connectVTS, 3000); }
+    }
+    connectVTS();
+
+    function mapVtsToScreen(vX, vY) {
+        let w = canvas.width, h = canvas.height, c = calibData;
+        let calibL = (c.TopLeft.x + c.MiddleLeft.x + c.BottomLeft.x) / 3; let calibR = (c.TopRight.x + c.MiddleRight.x + c.BottomRight.x) / 3;
+        let calibU = (c.TopLeft.y + c.TopCenter.y + c.TopRight.y) / 3; let calibD = (c.BottomLeft.y + c.BottomCenter.y + c.BottomRight.y) / 3;
+        let rangeX = calibR - calibL; if (Math.abs(rangeX) < 0.01) rangeX = 0.01; let rangeY = calibD - calibU; if (Math.abs(rangeY) < 0.08) rangeY = 0.08; 
+        return { x: Math.max(0, Math.min(w, ((vX - calibL) / rangeX) * w)), y: Math.max(0, Math.min(h, ((vY - calibU) / rangeY) * h)) };
+    }
+
+    function startCalibration() { if (!vts.authenticated) return alert("VTS 미연결 시 마우스 대체 모드에서는 시선 보정이 필요 없습니다!"); document.getElementById("title-screen").style.display = 'none'; document.getElementById("calibScreen").style.display = 'flex'; appState = "CALIB"; currentCalibIdx = 0; runCalibrationStep(); }
+    function runCalibrationStep() {
+        if (currentCalibIdx >= calibSteps.length) { localStorage.setItem('vts_calib_9pt', JSON.stringify(calibData)); alert("보정 완료!"); document.getElementById("calibScreen").style.display = 'none'; document.getElementById("title-screen").style.display = 'flex'; appState = "TITLE"; return; }
+        document.getElementById("calibProgress").innerText = `진행도: ${currentCalibIdx + 1} / 9`;
+        let d = calibSteps[currentCalibIdx], dot = document.getElementById("calibDot"), cx = 50, cy = 50;
+        if (d.includes("Left")) cx = 10; else if (d.includes("Right")) cx = 90; if (d.includes("Top")) cy = 10; else if (d.includes("Bottom")) cy = 90;
+        dot.style.left = `${cx}%`; dot.style.top = `${cy}%`; calibSamplesX = []; calibSamplesY = []; calibStartTime = performance.now();
+    }
+
+    let appState = "TITLE";
+    let fullCharacterList = [], characterList = [], currentIndex = 0, results = [];
+    let currentAgeStamp = null, currentBodyStamp = null, appearanceTime = 0, actionCount = 0; 
+    let prevBlink = false, prevSmile = false, prevBrow = false;
+    let isTransitioning = false;
+
+    let currentVtsStats = { pingPong: 0, smile: 0, blink: 0, browRaise: 0, volSum: 0, freqSum: 0, frameCount: 0, faceZSum: 0 };
+
+    async function initGame() {
+        try {
+            const response = await fetch('trickcal_characters.csv');
+            const text = new TextDecoder('utf-8').decode(await response.arrayBuffer());
+            const rows = text.split(/\r?\n/);
+            for (let i = 1; i < rows.length; i++) {
+                const cols = rows[i].trim().split(',');
+                if (cols[0]) fullCharacterList.push({ name: cols[0], releaseDate: cols[1], race: cols[2], personality: cols[3], role: cols[4], attackType: cols[5], position: cols[6] }); 
+            }
+            if(fullCharacterList.length > 0) { document.getElementById('max-count-label').innerText = fullCharacterList.length; document.getElementById('char-count').max = fullCharacterList.length; }
+        } catch (e) { console.error(e); }
+    }
+
+    function shuffleArray(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } }
+
+    function startGame() {
+        initAudio();
+        const cnt = Math.min(Math.max(1, parseInt(document.getElementById('char-count').value)), fullCharacterList.length);
+        let shuffled = [...fullCharacterList]; shuffleArray(shuffled); characterList = shuffled.slice(0, cnt);
+        document.getElementById('title-screen').style.display = 'none'; document.getElementById('game-container').style.display = 'flex';
+        document.getElementById('total-count').innerText = characterList.length;
+        appState = "GAME";
+        showCharacter();
+    }
+
+    function showCharacter() {
+        if(currentIndex >= characterList.length) { document.getElementById('game-container').style.display = 'none'; document.getElementById('celebration-screen').style.display = 'flex'; appState = "RESULT"; playFanfareSound(); shootConfetti(); return; }
+        document.getElementById('current-count').innerText = currentIndex + 1; document.getElementById('remain-count').innerText = characterList.length - currentIndex - 1;
+        currentAgeStamp = null; currentBodyStamp = null; actionCount = 0; 
+        document.getElementById('stamp-age').style.display = 'none'; document.getElementById('stamp-body').style.display = 'none';
+
+        currentVtsStats = { pingPong: 0, smile: 0, blink: 0, browRaise: 0, volSum: 0, freqSum: 0, frameCount: 0, faceZSum: 0 };
+
+        let charName = characterList[currentIndex].name, displayName = charName.includes('/') ? `${charName.split('/')[0]}(${charName.split('/')[1]})` : charName;
+        document.getElementById('character-image').src = `profile/${charName.replace(/\//g, '')}.png`; document.getElementById('character-name').innerText = displayName;
+
+        const card = document.getElementById('character-card');
+        card.classList.add('no-anim'); card.className = 'no-anim hidden'; void card.offsetWidth; 
+        card.className = 'enter'; appearanceTime = performance.now();
+    }
+
+    function applyStamp(type, value) {
+        if(isTransitioning) return; 
+        playThudSound(); actionCount++; let el;
+        if (type === 'age') { currentAgeStamp = currentAgeStamp === value ? null : value; el = document.getElementById('stamp-age'); el.innerText = currentAgeStamp || ''; el.className = 'stamp ' + (currentAgeStamp === '농' ? 'stamp-nong' : 'stamp-neulg'); el.style.display = currentAgeStamp ? 'block' : 'none'; if(currentAgeStamp) { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = 'stampAnimAge 0.2s ease-out forwards'; } } 
+        else { currentBodyStamp = currentBodyStamp === value ? null : value; el = document.getElementById('stamp-body'); el.innerText = currentBodyStamp || ''; el.className = 'stamp ' + (currentBodyStamp === '빈' ? 'stamp-bin' : 'stamp-bbang'); el.style.display = currentBodyStamp ? 'block' : 'none'; if(currentBodyStamp) { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = 'stampAnimBody 0.2s ease-out forwards'; } }
+    }
+
+    function nextCharacter() {
+        if(isTransitioning) return; 
+        isTransitioning = true;
+        const charData = characterList[currentIndex];
+        const timeTaken = parseFloat(((performance.now() - appearanceTime) / 1000).toFixed(2));
+        results.push({ ...charData, ageStamp: currentAgeStamp, bodyStamp: currentBodyStamp, timeTakenSec: timeTaken, actionCount: actionCount, vts: { ...currentVtsStats } });
+        document.getElementById('character-card').className = 'leave'; 
+        currentIndex++; setTimeout(() => { showCharacter(); isTransitioning = false; }, 500);
+    }
+
+    function loop() {
+        let now = performance.now(); let dt = now - lastTrackTime; lastTrackTime = now;
+
+        if (vts.authenticated) {
+            if (smoothX === 0 && vts.eyeX !== 0) { smoothX = vts.eyeX; smoothY = vts.eyeY; }
+            smoothX += (vts.eyeX - smoothX) * smoothingFactor; smoothY += (vts.eyeY - smoothY) * smoothingFactor;
+            let sp = mapVtsToScreen(smoothX, smoothY); trail.push(sp); if (trail.length > 15) trail.shift();
+        } else { trail.push({ x: mouseX, y: mouseY }); if (trail.length > 15) trail.shift(); }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        trail.forEach((pos, i) => {
+            let ratio = (i + 1) / trail.length; ctx.beginPath(); ctx.arc(pos.x, pos.y, 4 + ratio * 8, 0, Math.PI * 2);
+            if (i === trail.length - 1) { ctx.fillStyle = "#ff4757"; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = "white"; ctx.stroke(); } 
+            else { ctx.fillStyle = `rgba(255, 107, 129, ${ratio})`; ctx.fill(); }
+        });
+
+        let eyesClosed = vts.authenticated ? (vts.eyeLOpen < 0.3 && vts.eyeROpen < 0.3) : isMouseDown;
+        let smile = vts.authenticated ? (vts.mouthSmile > 0.5) : false; 
+        let brow = vts.authenticated ? (vts.browY > 0.5) : false;
+
+        if (appState === "CALIB") {
+            let elapsed = (now - calibStartTime) / 1000; document.getElementById("calibDot").style.backgroundColor = (Math.floor(elapsed * 10) % 2 === 0) ? "#55efc4" : "#0be881";
+            if (elapsed > 0.3) { calibSamplesX.push(vts.eyeX); calibSamplesY.push(vts.eyeY); }
+            if (elapsed > 2.0) { calibData[calibSteps[currentCalibIdx]] = { x: calibSamplesX.reduce((a,b)=>a+b,0)/calibSamplesX.length, y: calibSamplesY.reduce((a,b)=>a+b,0)/calibSamplesY.length }; currentCalibIdx++; runCalibrationStep(); }
+        } else if (appState === "GAME" && document.getElementById('character-card').className === 'enter') {
+            if (vts.authenticated) { let eyeMove = Math.abs(vts.eyeX - prevVtsEyeX) + Math.abs(vts.eyeY - prevVtsEyeY); if (eyeMove > 0.1) currentVtsStats.pingPong++; prevVtsEyeX = vts.eyeX; prevVtsEyeY = vts.eyeY; }
+            currentVtsStats.frameCount++; currentVtsStats.volSum += vts.voiceVol || 0; currentVtsStats.freqSum += vts.voiceFreq || 0; currentVtsStats.faceZSum += Math.abs(vts.faceZ || 0);
+            if(eyesClosed && !prevBlink) currentVtsStats.blink++; if(smile && !prevSmile) currentVtsStats.smile++; if(brow && !prevBrow) currentVtsStats.browRaise++;
+        }
+        prevBlink = eyesClosed; prevSmile = smile; prevBrow = brow; requestAnimationFrame(loop); 
+    }
+
+    function shootConfetti() { const colors = ['#f1c40f', '#e74c3c', '#3498db', '#2ecc71', '#9b59b6']; for(let i=0; i<150; i++) { let c = document.createElement('div'); c.classList.add('paper-confetti'); c.style.left = Math.random() * 100 + 'vw'; c.style.width = Math.random() * 12 + 6 + 'px'; c.style.height = Math.random() * 20 + 10 + 'px'; c.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)]; if (Math.random() > 0.5) c.style.borderRadius = '50%'; const dur = Math.random() * 3 + 2; const del = Math.random() * 1.5; c.style.animation = `fall ${dur}s linear ${del}s forwards`; document.body.appendChild(c); setTimeout(() => c.remove(), (dur + del) * 1000); } }
+
+    function showMvpAnalysis() {
+        document.getElementById('celebration-screen').style.display = 'none'; 
+        document.getElementById('result-screen-0').style.display = 'flex';
+        document.querySelectorAll('.paper-confetti').forEach(e => e.remove());
+
+        let avgTime = (results.reduce((sum, r) => sum + r.timeTakenSec, 0) / results.length).toFixed(2);
+        let maxTimeC = results.reduce((a, b) => a.timeTakenSec > b.timeTakenSec ? a : b);
+        let minTimeC = results.reduce((a, b) => a.timeTakenSec < b.timeTakenSec ? a : b);
+        let maxActionC = results.reduce((a, b) => a.actionCount > b.actionCount ? a : b);
+
+        let html = `
+            <div class="mvp-card">
+                <div style="font-size: 60px; margin-bottom: 10px;">⏱️</div>
+                <div class="mvp-title">평균 분류 소요 시간</div>
+                <div class="mvp-name">${avgTime}초</div>
+                <div class="mvp-val">1인당 평균 고민 시간</div>
+            </div>
+            <div class="mvp-card">
+                <img src="profile/${maxTimeC.name.replace(/\//g, '')}.png" onerror="this.src='data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22110%22 height=%22110%22 viewBox=%220 0 110 110%22%3E%3Ccircle cx=%2255%22 cy=%2255%22 r=%2255%22 fill=%22%23bdc3c7%22/%3E%3Ctext fill=%22%23333%22 font-size=%2220%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3E?%3C/text%3E%3C/svg%3E'">
+                <div class="mvp-title">가장 신중했던 사도</div>
+                <div class="mvp-name">${maxTimeC.name}</div>
+                <div class="mvp-val">${maxTimeC.timeTakenSec}초 소요</div>
+            </div>
+            <div class="mvp-card">
+                <img src="profile/${minTimeC.name.replace(/\//g, '')}.png" onerror="this.src='data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22110%22 height=%22110%22 viewBox=%220 0 110 110%22%3E%3Ccircle cx=%2255%22 cy=%2255%22 r=%2255%22 fill=%22%23bdc3c7%22/%3E%3Ctext fill=%22%23333%22 font-size=%2220%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3E?%3C/text%3E%3C/svg%3E'">
+                <div class="mvp-title">가장 망설임 없던 사도</div>
+                <div class="mvp-name">${minTimeC.name}</div>
+                <div class="mvp-val">${minTimeC.timeTakenSec}초 소요</div>
+            </div>
+            <div class="mvp-card">
+                <img src="profile/${maxActionC.name.replace(/\//g, '')}.png" onerror="this.src='data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22110%22 height=%22110%22 viewBox=%220 0 110 110%22%3E%3Ccircle cx=%2255%22 cy=%2255%22 r=%2255%22 fill=%22%23bdc3c7%22/%3E%3Ctext fill=%22%23333%22 font-size=%2220%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3E?%3C/text%3E%3C/svg%3E'">
+                <div class="mvp-title">가장 변덕스러웠던 사도</div>
+                <div class="mvp-name">${maxActionC.name}</div>
+                <div class="mvp-val">도장 변경 ${maxActionC.actionCount}회</div>
+            </div>
+        `;
+        document.getElementById('mvp-container').innerHTML = html;
+        let cards = document.querySelectorAll('#mvp-container .mvp-card');
+        cards.forEach((card, idx) => { setTimeout(() => { card.classList.add('show'); playSelectSound(); }, 200 * (idx + 1)); });
+    }
+
+    function adjustGridImages() {
+        document.querySelectorAll('.grid-cell').forEach(cell => {
+            let count = cell.querySelectorAll('.mini-img').length;
+            if(count > 0) {
+                let cw = cell.clientWidth - 10; let ch = cell.clientHeight - 10;
+                let size = 50;
+                while(size > 10) {
+                    let cols = Math.floor((cw + 5) / (size + 5)); let rows = Math.floor((ch + 5) / (size + 5));
+                    if(cols * rows >= count) break; size--;
+                }
+                cell.querySelectorAll('.mini-img').forEach(img => { img.style.width = size + 'px'; img.style.height = size + 'px'; });
+            }
+        });
+    }
+
+    function showResults() {
+        document.getElementById('result-screen-0').style.display = 'none'; document.getElementById('result-screen-1').style.display = 'flex';
+        let nNong=0, nNeulg=0, nAgeNone=0, nBin=0, nBbang=0, nBodyNone=0, total=results.length;
+        results.forEach(res => {
+            if(res.ageStamp==="농")nNong++; else if(res.ageStamp==="늙")nNeulg++; else nAgeNone++;
+            if(res.bodyStamp==="빈")nBin++; else if(res.bodyStamp==="빵")nBbang++; else nBodyNone++;
+            let x="center", y="center"; if(res.ageStamp==="농")x="left"; if(res.ageStamp==="늙")x="right"; if(res.bodyStamp==="빵")y="top"; if(res.bodyStamp==="빈")y="bottom";
+            const tc = document.getElementById(`cell-${y}-${x}`); const fn = res.name.replace(/\//g, '') + '.webp';
+            const img = document.createElement('img'); img.className = 'mini-img'; img.src = `mini/${fn}`; img.title = res.name; 
+            img.onerror = function() { this.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50"%3E%3Crect fill="%23ddd" width="50" height="50"/%3E%3Ctext fill="%23333" font-size="16" x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle"%3E?%3C/text%3E%3C/svg%3E'; };
+            tc.appendChild(img);
+        });
+        adjustGridImages(); 
+
+        const pN = (nNong/total*100).toFixed(1), pNe = (nNeulg/total*100).toFixed(1), pBi = (nBin/total*100).toFixed(1), pBb = (nBbang/total*100).toFixed(1);
+        document.getElementById('ratio-summary-box').innerHTML = `<div class="ratio-col"><div class="ratio-title">농 / 늙 비율</div><div class="ratio-bar-wrap"><div class="ratio-seg bg-nong" style="width: ${pN}%">${pN>=5?Math.round(pN)+'%':''}</div><div class="ratio-seg" style="width: ${(nAgeNone/total*100).toFixed(1)}%; background:transparent;"></div><div class="ratio-seg bg-neulg" style="width: ${pNe}%">${pNe>=5?Math.round(pNe)+'%':''}</div></div><div class="ratio-legend"><span style="color:#f39c12;">농 ${nNong}명</span> | <span style="color:#27ae60;">늙 ${nNeulg}명</span></div></div><div class="ratio-col"><div class="ratio-title">빈 / 빵 비율</div><div class="ratio-bar-wrap"><div class="ratio-seg bg-bin" style="width: ${pBi}%">${pBi>=5?Math.round(pBi)+'%':''}</div><div class="ratio-seg" style="width: ${(nBodyNone/total*100).toFixed(1)}%; background:transparent;"></div><div class="ratio-seg bg-bbang" style="width: ${pBb}%">${pBb>=5?Math.round(pBb)+'%':''}</div></div><div class="ratio-legend"><span style="color:#2980b9;">빈 ${nBin}명</span> | <span style="color:#c0392b;">빵 ${nBbang}명</span></div></div>`;
+    }
+
+    function showRaceAnalysis() {
+        document.getElementById('result-screen-1').style.display = 'none'; document.getElementById('result-screen-2').style.display = 'flex';
+        const st = {}; results.forEach(r => { let rc = r.race; if(!st[rc]) st[rc]={c:0, a:0, b:0}; st[rc].c++; if(r.ageStamp==='농')st[rc].a-=1; if(r.ageStamp==='늙')st[rc].a+=1; if(r.bodyStamp==='빈')st[rc].b-=1; if(r.bodyStamp==='빵')st[rc].b+=1; });
+        const gc = document.getElementById('race-graph-container'); gc.innerHTML = ''; 
+        for(const [rc, s] of Object.entries(st)) {
+            const aA = s.a/s.c, aB = s.b/s.c; const img = document.createElement('img'); img.className = 'race-img'; img.src = `race/${rc}.webp`; img.title = `${rc}\n농(-1)~늙(+1): ${aA.toFixed(2)}\n빈(-1)~빵(+1): ${aB.toFixed(2)}`;
+            img.onerror = function() { this.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="70" height="70"%3E%3Ccircle cx="35" cy="35" r="35" fill="%23bdc3c7"/%3E%3C/svg%3E'; };
+            img.style.left = `${10 + ((aA+1)/2)*80}%`; img.style.top = `${10 + ((-aB+1)/2)*80}%`; gc.appendChild(img);
+        }
+    }
+
+    function showPersonalityAnalysis() {
+        document.getElementById('result-screen-2').style.display = 'none'; document.getElementById('result-screen-3').style.display = 'flex';
+        const st = {}; results.forEach(r => { let ps = r.personality; if(!st[ps]) st[ps]={c:0, a:0, b:0}; st[ps].c++; if(r.ageStamp==='농')st[ps].a-=1; if(r.ageStamp==='늙')st[ps].a+=1; if(r.bodyStamp==='빈')st[ps].b-=1; if(r.bodyStamp==='빵')st[ps].b+=1; });
+        const gc = document.getElementById('personality-graph-container'); gc.innerHTML = ''; 
+        for(const [ps, s] of Object.entries(st)) {
+            const aA = s.a/s.c, aB = s.b/s.c; const img = document.createElement('img'); img.className = 'personality-img'; img.src = `personality/${ps}.webp`; img.title = `${ps}\n농~늙: ${aA.toFixed(2)}\n빈~빵: ${aB.toFixed(2)}`;
+            img.onerror = function() { this.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="70" height="70"%3E%3Ccircle cx="35" cy="35" r="35" fill="%23bdc3c7"/%3E%3C/svg%3E'; };
+            img.style.left = `${10 + ((aA+1)/2)*80}%`; img.style.top = `${10 + ((-aB+1)/2)*80}%`; gc.appendChild(img);
+        }
+    }
+
+    function showEtcAnalysis() {
+        document.getElementById('result-screen-3').style.display = 'none'; document.getElementById('result-screen-4').style.display = 'flex';
+        const st = {}; results.forEach(r => { [r.role, r.attackType, r.position].forEach(at => { if(!at) return; if(!st[at]) st[at]={c:0, a:0, b:0}; st[at].c++; if(r.ageStamp==='농')st[at].a-=1; if(r.ageStamp==='늙')st[at].a+=1; if(r.bodyStamp==='빈')st[at].b-=1; if(r.bodyStamp==='빵')st[at].b+=1; }); });
+        const gc = document.getElementById('etc-graph-container'); gc.innerHTML = ''; 
+        for(const [at, s] of Object.entries(st)) {
+            const aA = s.a/s.c, aB = s.b/s.c; const img = document.createElement('img'); img.className = 'etc-img'; img.src = `etc/${at}.webp`; img.title = `${at}\n농~늙: ${aA.toFixed(2)}\n빈~빵: ${aB.toFixed(2)}`;
+            img.onerror = function() { this.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="70" height="70"%3E%3Ccircle cx="35" cy="35" r="35" fill="%23bdc3c7"/%3E%3C/svg%3E'; };
+            img.style.left = `${10 + ((aA+1)/2)*80}%`; img.style.top = `${10 + ((-aB+1)/2)*80}%`; gc.appendChild(img);
+        }
+    }
+
+    function showReleaseAnalysis() {
+        document.getElementById('result-screen-4').style.display = 'none'; document.getElementById('result-screen-5').style.display = 'flex';
+        const st = {}; results.forEach(r => { const rd = r.releaseDate; if(!rd) return; if(!st[rd]) st[rd]={t:0, n:0, o:0, an:0, bi:0, bb:0, bn:0}; st[rd].t++; if(r.ageStamp==='농')st[rd].n++; else if(r.ageStamp==='늙')st[rd].o++; else st[rd].an++; if(r.bodyStamp==='빈')st[rd].bi++; else if(r.bodyStamp==='빵')st[rd].bb++; else st[rd].bn++; });
+        const gV = (str) => { if(str.includes("출시 당시")) return parseInt(str.substring(0,4))*10; const m = str.match(/(\d+)년\s*(\d+)분기/); if(m) return parseInt(m[1])*10 + parseInt(m[2]); return 99999; };
+        const sP = Object.keys(st).sort((a,b)=>gV(a)-gV(b)); const aC = document.getElementById('release-age-graph'), bC = document.getElementById('release-body-graph'); aC.innerHTML=''; bC.innerHTML='';
+        sP.forEach(p => {
+            const s = st[p]; let sL = p.substring(2).replace("출시 당시","오픈");
+            const aW = document.createElement('div'); aW.className = 'bar-wrapper';
+            if(s.o>0){ let e=document.createElement('div'); e.className='bar-segment'; e.style.height=`${s.o/s.t*100}%`; e.style.backgroundColor='#2ecc71'; e.style.color='white'; e.innerText=(s.o/s.t*100)>=10?Math.round(s.o/s.t*100)+'%':''; aW.appendChild(e); }
+            if(s.an>0){ let e=document.createElement('div'); e.className='bar-segment'; e.style.height=`${s.an/s.t*100}%`; e.style.backgroundColor='#bdc3c7'; e.style.color='#333'; e.innerText=(s.an/s.t*100)>=10?Math.round(s.an/s.t*100)+'%':''; aW.appendChild(e); }
+            if(s.n>0){ let e=document.createElement('div'); e.className='bar-segment'; e.style.height=`${s.n/s.t*100}%`; e.style.backgroundColor='#f1c40f'; e.style.color='#333'; e.innerText=(s.n/s.t*100)>=10?Math.round(s.n/s.t*100)+'%':''; aW.appendChild(e); }
+            const aL = document.createElement('div'); aL.className='bar-label'; aL.innerText=sL; aW.appendChild(aL); aC.appendChild(aW);
+            
+            const bW = document.createElement('div'); bW.className = 'bar-wrapper';
+            if(s.bb>0){ let e=document.createElement('div'); e.className='bar-segment'; e.style.height=`${s.bb/s.t*100}%`; e.style.backgroundColor='#e74c3c'; e.style.color='white'; e.innerText=(s.bb/s.t*100)>=10?Math.round(s.bb/s.t*100)+'%':''; bW.appendChild(e); }
+            if(s.bn>0){ let e=document.createElement('div'); e.className='bar-segment'; e.style.height=`${s.bn/s.t*100}%`; e.style.backgroundColor='#bdc3c7'; e.style.color='#333'; e.innerText=(s.bn/s.t*100)>=10?Math.round(s.bn/s.t*100)+'%':''; bW.appendChild(e); }
+            if(s.bi>0){ let e=document.createElement('div'); e.className='bar-segment'; e.style.height=`${s.bi/s.t*100}%`; e.style.backgroundColor='#3498db'; e.style.color='white'; e.innerText=(s.bi/s.t*100)>=10?Math.round(s.bi/s.t*100)+'%':''; bW.appendChild(e); }
+            const bL = document.createElement('div'); bL.className='bar-label'; bL.innerText=sL; bW.appendChild(bL); bC.appendChild(bW);
+        });
+    }
+
+    function showVtsAnalysis() {
+        document.getElementById('result-screen-5').style.display = 'none'; 
+        document.getElementById('result-screen-6').style.display = 'flex';
+
+        const calcAvgRate = (conditionFn) => {
+            let filtered = results.filter(conditionFn);
+            if (filtered.length === 0) return { pp: 0, s: 0, b: 0, br: 0, v: 0, f: 0, z: 0 };
+            let sum = filtered.reduce((acc, curr) => {
+                let v = curr.vts; let sec = curr.timeTakenSec > 0 ? curr.timeTakenSec : 0.1; 
+                return {
+                    pp: acc.pp + (v.pingPong / sec), s: acc.s + (v.smile / sec), b: acc.b + (v.blink / sec), br: acc.br + (v.browRaise / sec),     
+                    v: acc.v + (v.frameCount ? v.volSum / v.frameCount : 0), f: acc.f + (v.frameCount ? v.freqSum / v.frameCount : 0), z: acc.z + (v.frameCount ? v.faceZSum / v.frameCount : 0)
+                };
+            }, { pp: 0, s: 0, b: 0, br: 0, v: 0, f: 0, z: 0 });
+            let c = filtered.length;
+            return { pp: (sum.pp / c).toFixed(2), s: (sum.s / c).toFixed(2), b: (sum.b / c).toFixed(2), br: (sum.br / c).toFixed(2), v: (sum.v / c).toFixed(2), f: (sum.f / c).toFixed(1), z: (sum.z / c).toFixed(1) };
+        };
+
+        const stNong = calcAvgRate(r => r.ageStamp === '농'); const stNeulg = calcAvgRate(r => r.ageStamp === '늙');
+        const stBin = calcAvgRate(r => r.bodyStamp === '빈'); const stBbang = calcAvgRate(r => r.bodyStamp === '빵');
+
+        const calcScore = (st) => (parseFloat(st.pp)*2) - (parseFloat(st.b)*3) + (parseFloat(st.s)*2) + (parseFloat(st.br)*2) + (parseFloat(st.z)*0.5);
+        let aNong = calcScore(stNong), aNeulg = calcScore(stNeulg);
+        let pNong = (Math.exp(aNong) / (Math.exp(aNong) + Math.exp(aNeulg))) * 100 || 50; let pNeulg = (Math.exp(aNeulg) / (Math.exp(aNong) + Math.exp(aNeulg))) * 100 || 50;
+        let aBin = calcScore(stBin), aBbang = calcScore(stBbang);
+        let pBin = (Math.exp(aBin) / (Math.exp(aBin) + Math.exp(aBbang))) * 100 || 50; let pBbang = (Math.exp(aBbang) / (Math.exp(aBin) + Math.exp(aBbang))) * 100 || 50;
+
+        let ageDom = "중립"; if (pNong > 55) ageDom = "농"; else if (pNeulg > 55) ageDom = "늙";
+        let bodyDom = "중립"; if (pBbang > 55) bodyDom = "빵"; else if (pBin > 55) bodyDom = "빈";
+
+        let title = "정상성욕", prob = 50;
+        if (ageDom === '농' && bodyDom === '중립') { title = "농농단"; prob = pNong; }
+        else if (ageDom === '농' && bodyDom === '빵') { title = "농빵단"; prob = (pNong + pBbang)/2; }
+        else if (ageDom === '농' && bodyDom === '빈') { title = "농ㅋㅋ"; prob = (pNong + pBin)/2; }
+        else if (ageDom === '늙' && bodyDom === '중립') { title = "미시애호가"; prob = pNeulg; }
+        else if (ageDom === '늙' && bodyDom === '빵') { title = "빵빵단"; prob = (pNeulg + pBbang)/2; }
+        else if (ageDom === '늙' && bodyDom === '빈') { title = "닭장사랑단"; prob = (pNeulg + pBin)/2; }
+        else if (ageDom === '중립' && bodyDom === '빵') { title = "빵빵단"; prob = pBbang; }
+        else if (ageDom === '중립' && bodyDom === '빈') { title = "빈유파"; prob = pBin; }
+        else { prob = 100 - (Math.abs(pNong - 50) + Math.abs(pBbang - 50)); }
+
+        let html = `
+            <table class="vts-stats-table">
+                <tr class="vts-row"><th>분석 지표 (1인당 초당 평균)</th><th>🍼 농</th><th>🌿 늙</th><th>💧 빈</th><th>🍞 빵</th></tr>
+                <tr class="vts-row"><td>초당 동공 지진 횟수</td><td class="${stNong.pp>stNeulg.pp?'highlight':''}">${stNong.pp}회</td><td class="${stNeulg.pp>stNong.pp?'highlight':''}">${stNeulg.pp}회</td><td class="${stBin.pp>stBbang.pp?'highlight':''}">${stBin.pp}회</td><td class="${stBbang.pp>stBin.pp?'highlight':''}">${stBbang.pp}회</td></tr>
+                <tr class="vts-row"><td>초당 눈 깜빡임 (적을수록 집중)</td><td class="${stNong.b<stNeulg.b?'highlight':''}">${stNong.b}회</td><td class="${stNeulg.b<stNong.b?'highlight':''}">${stNeulg.b}회</td><td class="${stBin.b<stBbang.b?'highlight':''}">${stBin.b}회</td><td class="${stBbang.b<stBin.b?'highlight':''}">${stBbang.b}회</td></tr>
+                <tr class="vts-row"><td>초당 눈썹 상승 (반응도)</td><td class="${stNong.br>stNeulg.br?'highlight':''}">${stNong.br}회</td><td class="${stNeulg.br>stNong.br?'highlight':''}">${stNeulg.br}회</td><td class="${stBin.br>stBbang.br?'highlight':''}">${stBin.br}회</td><td class="${stBbang.br>stBin.br?'highlight':''}">${stBbang.br}회</td></tr>
+                <tr class="vts-row"><td>초당 미소 띤 횟수</td><td class="${stNong.s>stNeulg.s?'highlight':''}">${stNong.s}회</td><td class="${stNeulg.s>stNong.s?'highlight':''}">${stNeulg.s}회</td><td class="${stBin.s>stBbang.s?'highlight':''}">${stBin.s}회</td><td class="${stBbang.s>stBin.s?'highlight':''}">${stBbang.s}회</td></tr>
+                <tr class="vts-row"><td>고개 갸우뚱 각도 (집중도)</td><td class="${stNong.z>stNeulg.z?'highlight':''}">${stNong.z}°</td><td class="${stNeulg.z>stNong.z?'highlight':''}">${stNeulg.z}°</td><td class="${stBin.z>stBbang.z?'highlight':''}">${stBin.z}°</td><td class="${stBbang.z>stBin.z?'highlight':''}">${stBbang.z}°</td></tr>
+                <tr class="vts-row"><td>평균 목소리 볼륨</td><td>${stNong.v}</td><td>${stNeulg.v}</td><td>${stBin.v}</td><td>${stBbang.v}</td></tr>
+                <tr class="vts-row"><td>평균 목소리 주파수</td><td>${stNong.f}Hz</td><td>${stNeulg.f}Hz</td><td>${stBin.f}Hz</td><td>${stBbang.f}Hz</td></tr>
+            </table>
+
+            <div id="final-prob-box" class="modern-prob-box">
+                <div class="prob-label">VTS Tracking Analysis Result</div>
+                <div class="prob-value">
+                    <span class="prob-highlight">${prob.toFixed(1)}%</span> 확률로<br>
+                    당신은 [ <span class="prob-highlight" style="text-decoration: underline;">${title}</span> ] 입니다!
+                </div>
+            </div>
+        `;
+        document.getElementById('vts-stats-container').innerHTML = html;
+
+        let rows = document.querySelectorAll('.vts-row');
+        rows.forEach((row, idx) => { setTimeout(() => { row.classList.add('show'); playSelectSound(); }, 150 * (idx + 1)); });
+
+        setTimeout(() => {
+            document.getElementById('final-prob-box').classList.add('show');
+            document.getElementById('final-restart-btn').style.opacity = '1';
+            playFanfareSound();
+        }, 150 * rows.length + 400);
+    }
+
+    window.onload = function() {
+        initGame();
+        setupButtonSounds();
+    };
+    requestAnimationFrame(loop);
+</script>
+</body>
+</html>
