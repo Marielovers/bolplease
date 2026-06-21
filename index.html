@@ -718,8 +718,8 @@
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // 🌟 타이틀 화면과 보정 화면에서만 아이트래커 점 표시
-        if (appState === "TITLE" || appState === "CALIB") {
+        // 🌟 타이틀 화면(VTS 연결 시)과 보정 화면에서만 아이트래커 점 표시
+        if ((appState === "TITLE" && vts.authenticated) || appState === "CALIB") {
             trail.forEach((pos, i) => {
                 let ratio = (i + 1) / trail.length; ctx.beginPath(); ctx.arc(pos.x, pos.y, 4 + ratio * 8, 0, Math.PI * 2);
                 if (i === trail.length - 1) { ctx.fillStyle = "#ff4757"; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = "white"; ctx.stroke(); } 
@@ -831,45 +831,148 @@
 
     function showRaceAnalysis() {
         document.getElementById('result-screen-1').style.display = 'none'; document.getElementById('result-screen-2').style.display = 'flex';
+        
+        // 1. 전체 평균(사전 확률, m) 계산
+        let totalC = 0, totalA = 0, totalB = 0;
+        results.forEach(r => {
+            totalC++;
+            if(r.ageStamp==='농') totalA-=1; if(r.ageStamp==='늙') totalA+=1;
+            if(r.bodyStamp==='빈') totalB-=1; if(r.bodyStamp==='빵') totalB+=1;
+        });
+        const mA = totalC > 0 ? totalA / totalC : 0;
+        const mB = totalC > 0 ? totalB / totalC : 0;
+        const C = 5; // 가상의 기본 표본 수 (보정 강도)
+
+        // 2. 종족별 데이터 집계
         const st = {}; results.forEach(r => { let rc = r.race; if(!st[rc]) st[rc]={c:0, a:0, b:0}; st[rc].c++; if(r.ageStamp==='농')st[rc].a-=1; if(r.ageStamp==='늙')st[rc].a+=1; if(r.bodyStamp==='빈')st[rc].b-=1; if(r.bodyStamp==='빵')st[rc].b+=1; });
+        
+        // 3. 베이지안 평균 적용 및 최대 스케일 계산
+        let maxA = 0.01, maxB = 0.01;
+        for(const [rc, s] of Object.entries(st)) {
+            s.bayesianA = (C * mA + s.a) / (C + s.c);
+            s.bayesianB = (C * mB + s.b) / (C + s.c);
+            maxA = Math.max(maxA, Math.abs(s.bayesianA));
+            maxB = Math.max(maxB, Math.abs(s.bayesianB));
+        }
+
+        // 4. 그래프 렌더링
         const gc = document.getElementById('race-graph-container'); gc.innerHTML = ''; 
         for(const [rc, s] of Object.entries(st)) {
-            const aA = s.a/s.c, aB = s.b/s.c; const img = document.createElement('img'); img.className = 'race-img'; img.src = `race/${rc}.webp`; img.title = `${rc}\n농(-1)~늙(+1): ${aA.toFixed(2)}\n빈(-1)~빵(+1): ${aB.toFixed(2)}`;
+            const aA = s.bayesianA, aB = s.bayesianB; 
+            const img = document.createElement('img'); img.className = 'race-img'; img.src = `race/${rc}.webp`; 
+            img.title = `${rc} (${s.c}명)\n농(-1)~늙(+1): ${aA.toFixed(2)}\n빈(-1)~빵(+1): ${aB.toFixed(2)}`;
             img.onerror = function() { this.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="70" height="70"%3E%3Ccircle cx="35" cy="35" r="35" fill="%23bdc3c7"/%3E%3C/svg%3E'; };
-            img.style.left = `${10 + ((aA+1)/2)*80}%`; img.style.top = `${10 + ((-aB+1)/2)*80}%`; gc.appendChild(img);
+            img.style.left = `${10 + ((aA/maxA+1)/2)*80}%`; img.style.top = `${10 + ((-aB/maxB+1)/2)*80}%`; gc.appendChild(img);
         }
     }
 
     function showPersonalityAnalysis() {
         document.getElementById('result-screen-2').style.display = 'none'; document.getElementById('result-screen-3').style.display = 'flex';
+        
+        // 1. 전체 평균(사전 확률, m) 계산
+        let totalC = 0, totalA = 0, totalB = 0;
+        results.forEach(r => {
+            totalC++;
+            if(r.ageStamp==='농') totalA-=1; if(r.ageStamp==='늙') totalA+=1;
+            if(r.bodyStamp==='빈') totalB-=1; if(r.bodyStamp==='빵') totalB+=1;
+        });
+        const mA = totalC > 0 ? totalA / totalC : 0;
+        const mB = totalC > 0 ? totalB / totalC : 0;
+        const C = 5; // 보정 강도
+
+        // 2. 성격별 데이터 집계
         const st = {}; results.forEach(r => { let ps = r.personality; if(!st[ps]) st[ps]={c:0, a:0, b:0}; st[ps].c++; if(r.ageStamp==='농')st[ps].a-=1; if(r.ageStamp==='늙')st[ps].a+=1; if(r.bodyStamp==='빈')st[ps].b-=1; if(r.bodyStamp==='빵')st[ps].b+=1; });
+        
+        // 3. 베이지안 평균 적용
+        let maxA = 0.01, maxB = 0.01;
+        for(const [ps, s] of Object.entries(st)) {
+            s.bayesianA = (C * mA + s.a) / (C + s.c);
+            s.bayesianB = (C * mB + s.b) / (C + s.c);
+            maxA = Math.max(maxA, Math.abs(s.bayesianA));
+            maxB = Math.max(maxB, Math.abs(s.bayesianB));
+        }
+
+        // 4. 그래프 렌더링
         const gc = document.getElementById('personality-graph-container'); gc.innerHTML = ''; 
         for(const [ps, s] of Object.entries(st)) {
-            const aA = s.a/s.c, aB = s.b/s.c; const img = document.createElement('img'); img.className = 'personality-img'; img.src = `personality/${ps}.webp`; img.title = `${ps}\n농~늙: ${aA.toFixed(2)}\n빈~빵: ${aB.toFixed(2)}`;
+            const aA = s.bayesianA, aB = s.bayesianB; 
+            const img = document.createElement('img'); img.className = 'personality-img'; img.src = `personality/${ps}.webp`; 
+            img.title = `${ps} (${s.c}명)\n농(-1)~늙(+1): ${aA.toFixed(2)}\n빈(-1)~빵(+1): ${aB.toFixed(2)}`;
             img.onerror = function() { this.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="70" height="70"%3E%3Ccircle cx="35" cy="35" r="35" fill="%23bdc3c7"/%3E%3C/svg%3E'; };
-            img.style.left = `${10 + ((aA+1)/2)*80}%`; img.style.top = `${10 + ((-aB+1)/2)*80}%`; gc.appendChild(img);
+            img.style.left = `${10 + ((aA/maxA+1)/2)*80}%`; img.style.top = `${10 + ((-aB/maxB+1)/2)*80}%`; gc.appendChild(img);
         }
     }
 
     function showEtcAnalysis() {
         document.getElementById('result-screen-3').style.display = 'none'; document.getElementById('result-screen-4').style.display = 'flex';
+        
+        // 1. 전체 평균(사전 확률, m) 계산
+        let totalC = 0, totalA = 0, totalB = 0;
+        results.forEach(r => {
+            totalC++;
+            if(r.ageStamp==='농') totalA-=1; if(r.ageStamp==='늙') totalA+=1;
+            if(r.bodyStamp==='빈') totalB-=1; if(r.bodyStamp==='빵') totalB+=1;
+        });
+        const mA = totalC > 0 ? totalA / totalC : 0;
+        const mB = totalC > 0 ? totalB / totalC : 0;
+        const C = 5; // 보정 강도
+
+        // 2. 그 외 항목(역할/공격타입/포지션) 데이터 집계
         const st = {}; results.forEach(r => { [r.role, r.attackType, r.position].forEach(at => { if(!at) return; if(!st[at]) st[at]={c:0, a:0, b:0}; st[at].c++; if(r.ageStamp==='농')st[at].a-=1; if(r.ageStamp==='늙')st[at].a+=1; if(r.bodyStamp==='빈')st[at].b-=1; if(r.bodyStamp==='빵')st[at].b+=1; }); });
+        
+        // 3. 베이지안 평균 적용
+        let maxA = 0.01, maxB = 0.01;
+        for(const [at, s] of Object.entries(st)) {
+            s.bayesianA = (C * mA + s.a) / (C + s.c);
+            s.bayesianB = (C * mB + s.b) / (C + s.c);
+            maxA = Math.max(maxA, Math.abs(s.bayesianA));
+            maxB = Math.max(maxB, Math.abs(s.bayesianB));
+        }
+
+        // 4. 그래프 렌더링
         const gc = document.getElementById('etc-graph-container'); gc.innerHTML = ''; 
         for(const [at, s] of Object.entries(st)) {
-            const aA = s.a/s.c, aB = s.b/s.c; const img = document.createElement('img'); img.className = 'etc-img'; img.src = `etc/${at}.webp`; img.title = `${at}\n농~늙: ${aA.toFixed(2)}\n빈~빵: ${aB.toFixed(2)}`;
+            const aA = s.bayesianA, aB = s.bayesianB; 
+            const img = document.createElement('img'); img.className = 'etc-img'; img.src = `etc/${at}.webp`; 
+            img.title = `${at} (${s.c}명)\n농(-1)~늙(+1): ${aA.toFixed(2)}\n빈(-1)~빵(+1): ${aB.toFixed(2)}`;
             img.onerror = function() { this.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="70" height="70"%3E%3Ccircle cx="35" cy="35" r="35" fill="%23bdc3c7"/%3E%3C/svg%3E'; };
-            img.style.left = `${10 + ((aA+1)/2)*80}%`; img.style.top = `${10 + ((-aB+1)/2)*80}%`; gc.appendChild(img);
+            img.style.left = `${10 + ((aA/maxA+1)/2)*80}%`; img.style.top = `${10 + ((-aB/maxB+1)/2)*80}%`; gc.appendChild(img);
         }
     }
 
     function showReleaseAnalysis() {
         document.getElementById('result-screen-4').style.display = 'none'; document.getElementById('result-screen-5').style.display = 'flex';
-        const st = {}; results.forEach(r => { const rd = r.releaseDate; if(!rd) return; if(!st[rd]) st[rd]={t:0, n:0, o:0, an:0, bi:0, bb:0, bn:0}; st[rd].t++; if(r.ageStamp==='농')st[rd].n++; else if(r.ageStamp==='늙')st[rd].o++; else st[rd].an++; if(r.bodyStamp==='빈')st[rd].bi++; else if(r.bodyStamp==='빵')st[rd].bb++; else st[rd].bn++; });
-        const gV = (str) => { if(str.includes("")) return parseInt(str.substring(0,4))*10; const m = str.match(/(\d+)년\s*(\d+)분기/); if(m) return parseInt(m[1])*10 + parseInt(m[2]); return 99999; };
-        const sP = Object.keys(st).sort((a,b)=>gV(a)-gV(b)); const aC = document.getElementById('release-age-graph'), bC = document.getElementById('release-body-graph'); aC.innerHTML=''; bC.innerHTML='';
+        const st = {}; 
+        results.forEach(r => { 
+            let rd = r.releaseDate; 
+            if(!rd) return; 
+            
+            // 🌟 정규식을 활용하여 년도만 추출 및 병합
+            let yearMatch = rd.match(/(\d{4})년/);
+            if(yearMatch) rd = yearMatch[1] + "년";
+            else if(rd.includes("출시") || rd.includes("오픈")) rd = "오픈";
+
+            if(!st[rd]) st[rd]={t:0, n:0, o:0, an:0, bi:0, bb:0, bn:0}; 
+            st[rd].t++; 
+            if(r.ageStamp==='농')st[rd].n++; else if(r.ageStamp==='늙')st[rd].o++; else st[rd].an++; 
+            if(r.bodyStamp==='빈')st[rd].bi++; else if(r.bodyStamp==='빵')st[rd].bb++; else st[rd].bn++; 
+        });
+        
+        const gV = (str) => { 
+            let m = str.match(/(\d{4})/);
+            if(m) return parseInt(m[1]);
+            return 0; // "오픈"은 0으로 처리하여 맨 앞 정렬
+        };
+        
+        const sP = Object.keys(st).sort((a,b)=>gV(a)-gV(b)); 
+        const aC = document.getElementById('release-age-graph'), bC = document.getElementById('release-body-graph'); 
+        aC.innerHTML=''; bC.innerHTML='';
+
         sP.forEach(p => {
             const s = st[p]; 
-            let sL = String(p).replace(/^20/, "").replace("출시 당시", "오픈").replace(/년\s*/g, "-").replace("분기", "");
+            // 라벨 텍스트 축약 (2023년 -> 23년)
+            let sL = p.replace(/^20/, "").replace("년", "년");
+            if (p === "오픈") sL = "오픈";
             
             const aW = document.createElement('div'); aW.className = 'bar-wrapper';
             if(s.o>0){ let e=document.createElement('div'); e.className='bar-segment'; e.style.height=`${s.o/s.t*100}%`; e.style.backgroundColor='#2ecc71'; e.style.color='white'; e.innerText=(s.o/s.t*100)>=10?Math.round(s.o/s.t*100)+'%':''; aW.appendChild(e); }
@@ -918,7 +1021,7 @@
         let title = "정상성욕", prob = 50;
         if (ageDom === '농' && bodyDom === '중립') { title = "농농단"; prob = pNong; }
         else if (ageDom === '농' && bodyDom === '빵') { title = "농빵단"; prob = (pNong + pBbang)/2; }
-        else if (ageDom === '농' && bodyDom === '빈') { title = "농ㅋㅋ"; prob = (pNong + pBin)/2; }
+        else if (ageDom === '농' && bodyDom === '빈') { title = "농농단"; prob = (pNong + pBin)/2; }
         else if (ageDom === '늙' && bodyDom === '중립') { title = "미시애호가"; prob = pNeulg; }
         else if (ageDom === '늙' && bodyDom === '빵') { title = "빵빵단"; prob = (pNeulg + pBbang)/2; }
         else if (ageDom === '늙' && bodyDom === '빈') { title = "닭장사랑단"; prob = (pNeulg + pBin)/2; }
